@@ -1,0 +1,12 @@
+[package]
+name = "rsw3a"
+version = "0.1.0"
+edition = "2018"
+authors = ["DomesticMoth"]
+description = "Lib for converting 3a to css animations"
+repository = "https://github.com/DomesticMoth/rsw3a"
+categories = ["text-processing"]
+readme = "README.md"
+license = "GPL-3.0"
+
+[dependencies]
