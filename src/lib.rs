@@ -9,7 +9,6 @@ extern crate lazy_static;
 
 /*
     <TODO>
-        - Add invisible characters bg color optimisation to frame_to_commands
         - Add getting the uuid by the render function from the outside instead of generating it internally
         - Make the render an independent function and not a WebRenderer method
         - Test render function on real arts
@@ -254,17 +253,30 @@ enum Command {
     SetColor(ColorPair),
 }
 
+fn is_void(s: &str) -> bool {
+    let mut ret = true;
+    for c in s.chars() {
+        if !(c == ' ' || c == '\t') {
+            ret = false;
+        }
+    }
+    ret
+}
+
 fn frame_to_commands(frame: &Frame) -> Vec<Command> {
     let mut ret = Vec::new();
     let mut fg: Option<Color> = None;
     let mut bg: Option<Color> = None;
-    ret.push(Command::SetColor(ColorPair{fg: None, bg: None}));
+    let mut unset = true;
     for row in frame {
         for fragment in row {
-            if (fragment.fg_color != fg) | (fragment.bg_color != bg) {
-                fg = fragment.fg_color;
-                bg = fragment.bg_color;
-                ret.push(Command::SetColor(ColorPair{fg, bg}));
+            if fragment.fg_color != fg || fragment.bg_color != bg || unset {
+                if !is_void(&fragment.text) {
+                    fg = fragment.fg_color;
+                    bg = fragment.bg_color;
+                    ret.push(Command::SetColor(ColorPair{fg, bg}));
+                    unset = false;
+                }
             }
             ret.push(Command::Print(fragment.text.clone()));
         }
@@ -633,7 +645,7 @@ impl WebRenderer {
 }
 
 #[cfg(test)]
-mod render_tests {
+mod peart_tests {
     use rs3a;
     use crate::*;
     const APPLE: &str = r###"@
@@ -686,8 +698,13 @@ colors fg
     #[test]
     fn test_apple(){
         let apple = rs3a::load(APPLE.to_string()).unwrap();
-        let render = WebRenderer::new().render(&apple, None, None, "prefix-");
-        assert_eq!(render, String::new());
+        let preart = PRArt::from_art(&apple);
+        let r = PRArt{
+            frames: vec![],
+            base_fg: None,
+            base_bg: None,
+        };
+        assert_eq!(r, preart);
     }
 }
 
