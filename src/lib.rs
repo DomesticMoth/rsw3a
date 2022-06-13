@@ -1,15 +1,14 @@
 use rs3a::{Color, Art, Frame, ColorMod};
 use std::collections::HashMap;
 use base64;
-use rand::rngs::StdRng;
-use rand::SeedableRng;
-use rand::Rng;
+//use rand::rngs::StdRng;
+//use rand::SeedableRng;
+//use rand::Rng;
 #[macro_use]
 extern crate lazy_static;
 
 /*
     <TODO>
-        - Add getting the uuid by the render function from the outside instead of generating it internally
         - Make the render an independent function and not a WebRenderer method
         - Test render function on real arts
         - Write system for converting html files with change <3a> tags to css aimations
@@ -479,169 +478,162 @@ fn escape(s: String) -> String {
     ret
 }
 
-pub struct WebRenderer {
-    rng: StdRng,
+/*pub fn new() -> Self {
+    Self{ rng: StdRng::seed_from_u64(0) }
 }
-
-impl WebRenderer {
-    pub fn new() -> Self {
-        Self{ rng: StdRng::seed_from_u64(0) }
+fn uid(&mut self) -> String {
+    base64::encode(self.rng.gen::<u128>().to_be_bytes())
+}*/
+pub fn render(&mut self, art: &Art, palette: Option<Palette>, styles: Option<HashMap<String, String>>, prefix: &str, uid: &str) -> String {
+    let styles: HashMap<String, String> = match styles {
+        Some(styles) => styles,
+        None => { HashMap::new() }
+    };
+    let preart = PRArt::from_art(art);
+    let mut independent: bool = false;
+    let mut class = String::new();
+    let mut css: HashMap<String, String> = collection!{
+        "display".to_string() => "inline-block".to_string(),
+        "position".to_string() => "relative".to_string(),
+    };
+    for (k, v) in styles { css.insert(k, v); }
+    let palette: Palette = update_palette_from_styles(match palette {
+        Some(palette) => palette,
+        None => {Palette::new()}
+    }, css.clone());
+    let mut loop_enable = art.header.loop_enable;
+    if let Some(v) = css.get(&"independent".to_string()) {
+        if v == "true" {
+            independent = true;
+        }else if v == "false" {
+            independent = false;
+        }
     }
-    fn uid(&mut self) -> String {
-        base64::encode(self.rng.gen::<u128>().to_be_bytes())
+    if let Some(v) = css.get(&"loop-animation".to_string()) {
+        if v == "true" {
+            loop_enable = true;
+        }else if v == "false" {
+            loop_enable = false;
+        }
     }
-    pub fn render(&mut self, art: &Art, palette: Option<Palette>, styles: Option<HashMap<String, String>>, prefix: &str) -> String {
-        let styles: HashMap<String, String> = match styles {
-            Some(styles) => styles,
-            None => { HashMap::new() }
-        };
-        let uid = self.uid();
-        let preart = PRArt::from_art(art);
-        let mut independent: bool = false;
-        let mut class = String::new();
-        let mut css: HashMap<String, String> = collection!{
-            "display".to_string() => "inline-block".to_string(),
-            "position".to_string() => "relative".to_string(),
-        };
-        for (k, v) in styles { css.insert(k, v); }
-        let palette: Palette = update_palette_from_styles(match palette {
-            Some(palette) => palette,
-            None => {Palette::new()}
-        }, css.clone());
-        let mut loop_enable = art.header.loop_enable;
-        if let Some(v) = css.get(&"independent".to_string()) {
-            if v == "true" {
-                independent = true;
-            }else if v == "false" {
-                independent = false;
-            }
+    let mut preview_frame = art.header.preview;
+    if let Some(v) = css.get(&"preview-frame".to_string()) {
+        match v.parse::<u16>() {
+            Ok(v) => { preview_frame = v; }
+            Err(_) => {}
         }
-        if let Some(v) = css.get(&"loop-animation".to_string()) {
-            if v == "true" {
-                loop_enable = true;
-            }else if v == "false" {
-                loop_enable = false;
-            }
+    }
+    if preview_frame as usize > art.body.frames.len() {
+        preview_frame = 0;
+    }
+    let mut only_preview = false;
+    if let Some(v) = css.get(&"only-preview".to_string()) {
+        if v == "true" {
+            only_preview = true;
+        }else if v == "false" {
+            only_preview = false;
         }
-        let mut preview_frame = art.header.preview;
-        if let Some(v) = css.get(&"preview-frame".to_string()) {
-            match v.parse::<u16>() {
-                Ok(v) => { preview_frame = v; }
-                Err(_) => {}
-            }
+    }
+    let mut color_mod = art.header.color_mod;
+    if let Some(md) = css.get(&"color-mod".to_string()) {
+        match md.as_str() {
+            "none" => { color_mod = ColorMod::None }
+            "fg" =>   { color_mod = ColorMod::Fg }
+            "bg" =>   { color_mod = ColorMod::Bg }
+            "full" => { color_mod = ColorMod::Full }
+            _ => {}
         }
-        if preview_frame as usize > art.body.frames.len() {
-            preview_frame = 0;
+    }
+    css.insert("background-color".to_string(), "none".to_string());
+    css.insert("color".to_string(), "none".to_string());
+    colorise(ColorType::Fg(preart.base_fg), color_mod, &palette, independent, true, prefix, &mut css, &mut class);
+    colorise(ColorType::Bg(preart.base_bg), color_mod, &palette, independent, true, prefix, &mut css, &mut class);
+    let mut anim_styles = String::new();
+    if !only_preview {
+        let anim_time = (art.body.frames.len() as f64 * art.header.delay as f64) / 1000.0;
+        for i in 0..art.body.frames.len() {
+            let stp: f64 = (100.0 / art.body.frames.len() as f64) * i as f64;
+            let mp: f64 = (100.0 / art.body.frames.len() as f64) * (i as f64 + 0.5);
+            let ep: f64 = (100.0 / art.body.frames.len() as f64) * (i + 1) as f64;
+            anim_styles = format!("{}\
+                .{uid}-f{nom}{{animation:{uid}-f{nom}a {time}{inf};}}\
+                @keyframes {uid}-f{nom}a{{{stp}%{{visibility:hidden;}}{mp}%{{visibility:visible;}}{ep}%{{visibility:hidden;}}}}\
+                ", anim_styles, nom = i, uid = uid, time = anim_time, stp = stp, mp = mp, ep = ep,
+                inf = match loop_enable {
+                    true => " infinite",
+                    false => " forwards",
+                });
         }
-        let mut only_preview = false;
-        if let Some(v) = css.get(&"only-preview".to_string()) {
-            if v == "true" {
-                only_preview = true;
-            }else if v == "false" {
-                only_preview = false;
-            }
+    }
+    let all_styles = format!("\
+        <style type=\"text/css\">\
+        .{uid}{{visibility:{vis};display:inline-block;top:0;left:0;margin:0;}}\
+        {anim}\
+        </style>\
+    ", uid = uid, anim = anim_styles, vis = if only_preview {"visible"}else{"hidden"});
+    let mut frames = String::new();
+    for (nom, frame) in preart.frames.iter().enumerate() {
+        if only_preview {
+            if nom != preview_frame as usize { continue };
         }
-        let mut color_mod = art.header.color_mod;
-        if let Some(md) = css.get(&"color-mod".to_string()) {
-            match md.as_str() {
-                "none" => { color_mod = ColorMod::None }
-                "fg" =>   { color_mod = ColorMod::Fg }
-                "bg" =>   { color_mod = ColorMod::Bg }
-                "full" => { color_mod = ColorMod::Full }
-                _ => {}
-            }
+        let mut frame_classes = format!("{uid} {uid}-f{nom} ", uid = uid, nom = nom);
+        let mut frame_styles = HashMap::<String, String>::new();
+        if nom > 0 {
+            frame_styles.insert("position".to_string(), "absolute".to_string());
         }
-        css.insert("background-color".to_string(), "none".to_string());
-        css.insert("color".to_string(), "none".to_string());
-        colorise(ColorType::Fg(preart.base_fg), color_mod, &palette, independent, true, prefix, &mut css, &mut class);
-        colorise(ColorType::Bg(preart.base_bg), color_mod, &palette, independent, true, prefix, &mut css, &mut class);
-        let mut anim_styles = String::new();
-        if !only_preview {
-            let anim_time = (art.body.frames.len() as f64 * art.header.delay as f64) / 1000.0;
-            for i in 0..art.body.frames.len() {
-                let stp: f64 = (100.0 / art.body.frames.len() as f64) * i as f64;
-                let mp: f64 = (100.0 / art.body.frames.len() as f64) * (i as f64 + 0.5);
-                let ep: f64 = (100.0 / art.body.frames.len() as f64) * (i + 1) as f64;
-                anim_styles = format!("{}\
-                    .{uid}-f{nom}{{animation:{uid}-f{nom}a {time}{inf};}}\
-                    @keyframes {uid}-f{nom}a{{{stp}%{{visibility:hidden;}}{mp}%{{visibility:visible;}}{ep}%{{visibility:hidden;}}}}\
-                    ", anim_styles, nom = i, uid = uid, time = anim_time, stp = stp, mp = mp, ep = ep,
-                    inf = match loop_enable {
-                        true => " infinite",
-                        false => " forwards",
-                    });
-            }
+        // add color styles
+        if frame.base_fg != preart.base_fg {
+            colorise(ColorType::Fg(frame.base_fg), color_mod, &palette, independent, true, prefix, &mut frame_styles, &mut frame_classes);
         }
-        let all_styles = format!("\
-            <style type=\"text/css\">\
-            .{uid}{{visibility:{vis};display:inline-block;top:0;left:0;margin:0;}}\
-            {anim}\
-            </style>\
-        ", uid = uid, anim = anim_styles, vis = if only_preview {"visible"}else{"hidden"});
-        let mut frames = String::new();
-        for (nom, frame) in preart.frames.iter().enumerate() {
-            if only_preview {
-                if nom != preview_frame as usize { continue };
-            }
-            let mut frame_classes = format!("{uid} {uid}-f{nom} ", uid = uid, nom = nom);
-            let mut frame_styles = HashMap::<String, String>::new();
-            if nom > 0 {
-                frame_styles.insert("position".to_string(), "absolute".to_string());
-            }
-            // add color styles
-            if frame.base_fg != preart.base_fg {
-                colorise(ColorType::Fg(frame.base_fg), color_mod, &palette, independent, true, prefix, &mut frame_styles, &mut frame_classes);
-            }
-            if frame.base_bg != preart.base_bg {
-                colorise(ColorType::Bg(frame.base_bg), color_mod, &palette, independent, true, prefix, &mut frame_styles, &mut frame_classes);
-            }
-            let frame_styles = if frame_styles.len() > 0 {
-                format!(" style=\"{}\"", style_render(frame_styles))
-            }else{ String::new() };
-            frames = format!("{}<pre class=\"{}\"{}>\n", frames, frame_classes, frame_styles);
-            // render frame body
-            let mut span = false;
-            for cmd in &frame.commands {
-                match cmd {
-                    Command::Print(text) => {
-                        frames = format!("{}{}", frames, escape(text.to_string()));
+        if frame.base_bg != preart.base_bg {
+            colorise(ColorType::Bg(frame.base_bg), color_mod, &palette, independent, true, prefix, &mut frame_styles, &mut frame_classes);
+        }
+        let frame_styles = if frame_styles.len() > 0 {
+            format!(" style=\"{}\"", style_render(frame_styles))
+        }else{ String::new() };
+        frames = format!("{}<pre class=\"{}\"{}>\n", frames, frame_classes, frame_styles);
+        // render frame body
+        let mut span = false;
+        for cmd in &frame.commands {
+            match cmd {
+                Command::Print(text) => {
+                    frames = format!("{}{}", frames, escape(text.to_string()));
+                }
+                Command::SetColor(pair) => {
+                    if span {
+                        frames = format!("{}</span>", frames);
+                        span = false;
                     }
-                    Command::SetColor(pair) => {
-                        if span {
-                            frames = format!("{}</span>", frames);
-                            span = false;
-                        }
-                        if pair.fg != frame.base_fg || pair.bg != frame.base_bg {
-                            let mut span_classes = String::new();
-                            let mut span_styles = HashMap::<String, String>::new();
-                            colorise(ColorType::Fg(pair.fg), color_mod, &palette, independent, true, prefix, &mut span_styles, &mut span_classes);
-                            colorise(ColorType::Bg(pair.bg), color_mod, &palette, independent, true, prefix, &mut span_styles, &mut span_classes);
-                            if span_styles.len() + span_classes.len() > 0 {
-                                span = true;
-                                let span_classes = if span_classes.len() > 0 {
-                                    format!(" class=\"{}\"", span_classes)
-                                }else{ String::new() };
-                                let span_styles = if span_styles.len() > 0 {
-                                    format!(" style=\"{}\"", style_render(span_styles))
-                                }else{ String::new() };
-                                frames = format!("{}<span{}{}>", frames, span_classes, span_styles);
-                            }
+                    if pair.fg != frame.base_fg || pair.bg != frame.base_bg {
+                        let mut span_classes = String::new();
+                        let mut span_styles = HashMap::<String, String>::new();
+                        colorise(ColorType::Fg(pair.fg), color_mod, &palette, independent, true, prefix, &mut span_styles, &mut span_classes);
+                        colorise(ColorType::Bg(pair.bg), color_mod, &palette, independent, true, prefix, &mut span_styles, &mut span_classes);
+                        if span_styles.len() + span_classes.len() > 0 {
+                            span = true;
+                            let span_classes = if span_classes.len() > 0 {
+                                format!(" class=\"{}\"", span_classes)
+                            }else{ String::new() };
+                            let span_styles = if span_styles.len() > 0 {
+                                format!(" style=\"{}\"", style_render(span_styles))
+                            }else{ String::new() };
+                            frames = format!("{}<span{}{}>", frames, span_classes, span_styles);
                         }
                     }
                 }
             }
-            frames = format!("{}</pre>\n", frames);
         }
-        let title = match &art.header.title {
-            Some(title) => { format!(" title=\"{}\"", title) }
-            None => { String::new() }
-        };
-        let author = match &art.header.author {
-            Some(author) => { format!(" author=\"{}\"", author) }
-            None => { String::new() }
-        };
-        format!("<div class=\"{}\" style=\"{}\"{}{}>\n{}\n{}</div>", class, style_render(css), title, author, all_styles, frames)
+        frames = format!("{}</pre>\n", frames);
     }
+    let title = match &art.header.title {
+        Some(title) => { format!(" title=\"{}\"", title) }
+        None => { String::new() }
+    };
+    let author = match &art.header.author {
+        Some(author) => { format!(" author=\"{}\"", author) }
+        None => { String::new() }
+    };
+    format!("<div class=\"{}\" style=\"{}\"{}{}>\n{}\n{}</div>", class, style_render(css), title, author, all_styles, frames)
 }
 
 /*#[cfg(test)]
