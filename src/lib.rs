@@ -1,11 +1,9 @@
-use rs3a::{Color, Art, Frame, ColorMod};
+use rs3a::{Color, Art, Frame, ColorMod, COLORS};
 use std::collections::HashMap;
 //use base64;
 //use rand::rngs::StdRng;
 //use rand::SeedableRng;
 //use rand::Rng;
-#[macro_use]
-extern crate lazy_static;
 
 /*
     <TODO>
@@ -16,7 +14,7 @@ extern crate lazy_static;
     </TODO>
 */
 
-lazy_static! {
+/*lazy_static! {
     static ref ALL_COLORS: Vec<Color> = vec![
         Color::BLACK,
         Color::BLUE,
@@ -35,7 +33,7 @@ lazy_static! {
         Color::BRIGHT_YELLOW,
         Color::BRIGHT_WHITE,
     ];
-}
+}*/
 
 macro_rules! collection {
     // map-like
@@ -196,7 +194,7 @@ impl BasePalette {
     }
     pub fn render(&self, prefix: &str, color_prefix: &str) -> String{
         let mut ret = String::new();
-        for color in ALL_COLORS.iter() {
+        for color in COLORS.iter() {
             ret = format!("{}.{}{}{{{}color:{};}}", 
                 ret, 
                 prefix, 
@@ -375,7 +373,7 @@ impl PRArt {
 }
 
 fn update_palette_from_styles(mut palette: Palette, styles: HashMap<String, String>) -> Palette {
-    for color in ALL_COLORS.iter() {
+    for color in COLORS.iter() {
         if let Some(code) = styles.get(&format!("fg-color-{}", color_class_name(*color))) {
             palette.fg.set(*color, code.clone());
         }
